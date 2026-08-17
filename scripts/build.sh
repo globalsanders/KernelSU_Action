@@ -101,33 +101,36 @@ make_args() {
 		printf ' LLVM=1 LLVM_IAS=1'
 		[ -n "${GCC_64:-}" ] || printf ' CROSS_COMPILE=aarch64-linux-gnu-'
 	fi
-	# Fix for VDSO build on kernel 4.14: set AS to use clang integrated assembler
-	# This prevents /usr/bin/as from being used for ARM64 assembly
-	if [ -n "${CLANG_PATH:-}" ] && [ -f "${CLANG_PATH}/clang" ]; then
-		printf ' AS=%s/clang' "$CLANG_PATH"
-	fi
 }
 
 build_kernel() {
 	group "Building kernel"
-	# Create wrapper for 'as' that uses clang's integrated assembler
-	# This fixes the /usr/bin/as -EL error on kernel 4.14
+	# Create intelligent 'as' wrapper that routes ARM64 assembly to cross-assembler
+	# and x86_64 assembly to system assembler
 	local wrapper_dir="${WORKSPACE}/.as_wrapper"
 	mkdir -p "$wrapper_dir"
-	cat > "$wrapper_dir/as" << 'ASWRAPPER'
+
+	# Extract GCC_64 path
+	local gcc64_as=""
+	if [ -n "${GCC_64:-}" ]; then
+		gcc64_as=$(echo "$GCC_64" | sed 's/CROSS_COMPILE=//')as
+	fi
+
+	cat > "$wrapper_dir/as" << ASWRAPPER
 #!/bin/bash
-# Wrapper to redirect as calls to clang integrated assembler
-# Filter out GNU as-specific flags that clang doesn't understand
-args=()
-for arg in "$@"; do
-    case "$arg" in
-        --64|--32|-EL|-EB|--noexecstack) ;; # Skip GNU as flags
-        *) args+=("$arg") ;;
+# Smart assembler wrapper: route ARM64 to cross-assembler, x86_64 to system
+# Check for ARM64 flags
+for arg in "\$@"; do
+    case "\$arg" in
+        -EL|-EB)
+            # ARM flags - use cross-assembler
+            exec "${gcc64_as}" "\$@"
+            ;;
     esac
 done
-exec "CLANG_PLACEHOLDER/clang" -c -x assembler -target aarch64-linux-gnu "${args[@]}"
+# Default to system assembler for host (x86_64) code
+exec /usr/bin/as "\$@"
 ASWRAPPER
-	sed -i "s|CLANG_PLACEHOLDER|${CLANG_PATH}|g" "$wrapper_dir/as"
 	chmod +x "$wrapper_dir/as"
 	export PATH="${wrapper_dir}:${CLANG_PATH:-}:${PATH}"
 	export KBUILD_BUILD_HOST=${KBUILD_BUILD_HOST:-Github-Action}
