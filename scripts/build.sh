@@ -101,6 +101,11 @@ make_args() {
 		printf ' LLVM=1 LLVM_IAS=1'
 		[ -n "${GCC_64:-}" ] || printf ' CROSS_COMPILE=aarch64-linux-gnu-'
 	fi
+	# Fix for VDSO build on kernel 4.14: set AS to use clang integrated assembler
+	# This prevents /usr/bin/as from being used for ARM64 assembly
+	if [ -n "${CLANG_PATH:-}" ] && [ -f "${CLANG_PATH}/clang" ]; then
+		printf ' AS=%s/clang' "$CLANG_PATH"
+	fi
 }
 
 build_kernel() {
