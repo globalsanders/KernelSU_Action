@@ -114,11 +114,20 @@ build_kernel() {
 	# This fixes the /usr/bin/as -EL error on kernel 4.14
 	local wrapper_dir="${WORKSPACE}/.as_wrapper"
 	mkdir -p "$wrapper_dir"
-	cat > "$wrapper_dir/as" << WRAPPER
+	cat > "$wrapper_dir/as" << 'ASWRAPPER'
 #!/bin/bash
 # Wrapper to redirect as calls to clang integrated assembler
-exec "${CLANG_PATH}/clang" -c -x assembler "\$@"
-WRAPPER
+# Filter out GNU as-specific flags that clang doesn't understand
+args=()
+for arg in "$@"; do
+    case "$arg" in
+        --64|--32|-EL|-EB|--noexecstack) ;; # Skip GNU as flags
+        *) args+=("$arg") ;;
+    esac
+done
+exec "CLANG_PLACEHOLDER/clang" -c -x assembler -target aarch64-linux-gnu "${args[@]}"
+ASWRAPPER
+	sed -i "s|CLANG_PLACEHOLDER|${CLANG_PATH}|g" "$wrapper_dir/as"
 	chmod +x "$wrapper_dir/as"
 	export PATH="${wrapper_dir}:${CLANG_PATH:-}:${PATH}"
 	export KBUILD_BUILD_HOST=${KBUILD_BUILD_HOST:-Github-Action}
