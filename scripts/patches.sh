@@ -171,9 +171,11 @@ susfs_defconfig() {
 			# off in the reference builds.
 			KSU_SUSFS_SUS_SU | KSU_SUSFS_SUS_OVERLAYFS)
 				kconf_disable "$defconfig" "CONFIG_${s}" ;;
-			# These features use susfs_is_current_ksu_domain() which has broken
-			# extern declaration on kernel 4.14 - disable all of them
-			KSU_SUSFS_SUS_MOUNT | KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT | KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT | KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT)
+			# These features have broken extern declarations/dependencies on kernel 4.14
+			# SUS_MOUNT: fdinfo.c incompatible
+			# TRY_UMOUNT: ksu_try_umount extern is inside SUS_MOUNT ifdef
+			# AUTO_ADD_*: susfs_is_current_ksu_domain extern is inside SUS_MOUNT ifdef
+			KSU_SUSFS_SUS_MOUNT | KSU_SUSFS_TRY_UMOUNT | KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT | KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT | KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT)
 				if [ "$kver_check" = "4.14" ]; then
 					kconf_disable "$defconfig" "CONFIG_${s}"
 					warn "disabled CONFIG_${s} (incompatible with kernel 4.14)"
