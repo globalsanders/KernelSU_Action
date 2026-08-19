@@ -175,6 +175,35 @@ susfs_defconfig() {
 	debug "SUSFS symbols: $(printf '%s ' $syms)"
 }
 
+# ========================================================= SUSFS kernel 4.14 fixes
+
+# Fix inotify_mark_user_mask() which doesn't exist in kernel 4.14
+# Replace with (mark->mask & IN_ALL_EVENTS) which is the 4.14 equivalent
+fix_susfs_inotify_414() {
+	local fdinfo="${KERNEL_DIR}/fs/notify/fdinfo.c"
+	group "Fixing SUSFS inotify for kernel 4.14"
+
+	if [ ! -f "$fdinfo" ]; then
+		info "fs/notify/fdinfo.c not found; skipping inotify fix"
+		endgroup; return 0
+	fi
+
+	if ! grep -q 'inotify_mark_user_mask' "$fdinfo"; then
+		info "inotify_mark_user_mask not found in fdinfo.c; nothing to fix"
+		endgroup; return 0
+	fi
+
+	# Replace inotify_mark_user_mask(mark) with (mark->mask & IN_ALL_EVENTS)
+	sed -i 's/inotify_mark_user_mask(mark)/(mark->mask \& IN_ALL_EVENTS)/g' "$fdinfo"
+
+	if grep -q 'inotify_mark_user_mask' "$fdinfo"; then
+		warn "inotify_mark_user_mask replacement may have failed"
+	else
+		ok "Fixed inotify_mark_user_mask for kernel 4.14"
+	fi
+	endgroup
+}
+
 # ============================================================== may_mount fix
 
 # SukiSU-Ultra's SUSFS code calls may_mount() before it's defined in kernel 4.14.
@@ -450,7 +479,16 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
 				may_mount_forward_decl_apply
 			fi
 
-			if is_true "${ENABLE_SUSFS:-false}";      then susfs_apply;      fi
+			if is_true "${ENABLE_SUSFS:-false}"; then
+				susfs_apply
+				# Fix SUSFS inotify bug for kernel 4.14
+				local kver
+				kver=$(kernel_version "$KERNEL_DIR" 2>/dev/null || echo "0.0")
+				if [ "$kver" = "4.14" ]; then
+					fix_susfs_inotify_414
+					may_mount_forward_decl_apply
+				fi
+			fi
 			if is_true "${ENABLE_HIDE_STUFF:-false}"; then hide_stuff_apply; fi
 			;;
 		*) die "unknown patch step '$1'" ;;
