@@ -193,25 +193,30 @@ may_mount_forward_decl_apply() {
 	[ -f "$ns" ] || die "fs/namespace.c not found"
 
 	# Check if there's already a forward declaration
-	if grep -q '^static bool may_mount(void);' "$ns"; then
+	if grep -q '^static inline bool may_mount(void);' "$ns" || grep -q '^static bool may_mount(void);' "$ns"; then
 		info "may_mount forward declaration already present"
 		endgroup; return 0
 	fi
 
-	# Check if may_mount exists in the file
-	if ! grep -q 'static bool may_mount' "$ns"; then
+	# Check if may_mount exists in the file (it's defined as 'static inline bool' in kernel 4.14)
+	if ! grep -qE 'static (inline )?bool may_mount' "$ns"; then
 		info "may_mount not found in fs/namespace.c; nothing to do"
 		endgroup; return 0
 	fi
 
+	# Determine if the function is inline or not
+	local decl="static bool may_mount(void);"
+	if grep -q 'static inline bool may_mount' "$ns"; then
+		decl="static inline bool may_mount(void);"
+	fi
+
 	# Add forward declaration after the includes, before any function definitions
-	# Find the first function definition and insert before it
 	local anchor='#include <uapi/linux/mount.h>'
 	if grep -q "$anchor" "$ns"; then
 		sed -i "/$anchor/a\\
 \\
 /* Forward declaration for SUSFS compatibility */\\
-static bool may_mount(void);" "$ns"
+$decl" "$ns"
 		ok "may_mount() forward declaration added (kernel ${kver})"
 	else
 		# Fallback: add after all #include lines
@@ -221,7 +226,7 @@ static bool may_mount(void);" "$ns"
 			sed -i "${last_include}a\\
 \\
 /* Forward declaration for SUSFS compatibility */\\
-static bool may_mount(void);" "$ns"
+$decl" "$ns"
 			ok "may_mount() forward declaration added after includes (kernel ${kver})"
 		else
 			warn "could not find insertion point for may_mount forward declaration"
