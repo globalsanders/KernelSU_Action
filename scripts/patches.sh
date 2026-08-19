@@ -159,6 +159,10 @@ susfs_defconfig() {
        applied, or pick a variant that bundles SUSFS."
 	fi
 
+	# Check kernel version for compatibility exclusions
+	local kver_check
+	kver_check=$(kernel_version "$KERNEL_DIR" 2>/dev/null || echo "0.0")
+
 	local s enabled=0
 	for s in $syms; do
 		case "$s" in
@@ -167,6 +171,14 @@ susfs_defconfig() {
 			# off in the reference builds.
 			KSU_SUSFS_SUS_SU | KSU_SUSFS_SUS_OVERLAYFS)
 				kconf_disable "$defconfig" "CONFIG_${s}" ;;
+			# SUS_MOUNT breaks fdinfo.c on kernel 4.14 (different code structure)
+			KSU_SUSFS_SUS_MOUNT)
+				if [ "$kver_check" = "4.14" ]; then
+					kconf_disable "$defconfig" "CONFIG_${s}"
+					warn "disabled CONFIG_KSU_SUSFS_SUS_MOUNT (incompatible with kernel 4.14 fdinfo.c)"
+				else
+					kconf_enable "$defconfig" "CONFIG_${s}"; enabled=$((enabled + 1))
+				fi ;;
 			*)
 				kconf_enable "$defconfig" "CONFIG_${s}"; enabled=$((enabled + 1)) ;;
 		esac
