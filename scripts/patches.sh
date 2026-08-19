@@ -175,6 +175,61 @@ susfs_defconfig() {
 	debug "SUSFS symbols: $(printf '%s ' $syms)"
 }
 
+# ============================================================== may_mount fix
+
+# SukiSU-Ultra's SUSFS code calls may_mount() before it's defined in kernel 4.14.
+# This adds a forward declaration to fix the compilation error.
+may_mount_forward_decl_apply() {
+	local ns="${KERNEL_DIR}/fs/namespace.c"
+	group "Adding may_mount forward declaration"
+
+	local kver
+	kver=$(kernel_version "$KERNEL_DIR") || die "cannot read kernel version"
+
+	if ver_ge "$kver" "5.9"; then
+		info "kernel ${kver} >= 5.9; may_mount forward declaration not needed"
+		endgroup; return 0
+	fi
+	[ -f "$ns" ] || die "fs/namespace.c not found"
+
+	# Check if there's already a forward declaration
+	if grep -q '^static bool may_mount(void);' "$ns"; then
+		info "may_mount forward declaration already present"
+		endgroup; return 0
+	fi
+
+	# Check if may_mount exists in the file
+	if ! grep -q 'static bool may_mount' "$ns"; then
+		info "may_mount not found in fs/namespace.c; nothing to do"
+		endgroup; return 0
+	fi
+
+	# Add forward declaration after the includes, before any function definitions
+	# Find the first function definition and insert before it
+	local anchor='#include <uapi/linux/mount.h>'
+	if grep -q "$anchor" "$ns"; then
+		sed -i "/$anchor/a\\
+\\
+/* Forward declaration for SUSFS compatibility */\\
+static bool may_mount(void);" "$ns"
+		ok "may_mount() forward declaration added (kernel ${kver})"
+	else
+		# Fallback: add after all #include lines
+		local last_include
+		last_include=$(grep -n '^#include' "$ns" | tail -1 | cut -d: -f1)
+		if [ -n "$last_include" ]; then
+			sed -i "${last_include}a\\
+\\
+/* Forward declaration for SUSFS compatibility */\\
+static bool may_mount(void);" "$ns"
+			ok "may_mount() forward declaration added after includes (kernel ${kver})"
+		else
+			warn "could not find insertion point for may_mount forward declaration"
+		fi
+	fi
+	endgroup
+}
+
 # =============================================================== path_umount
 
 # path_umount() landed upstream in Linux 5.9. KernelSU uses it to unmount its
@@ -383,6 +438,11 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
 			if [ "${KSU_VARIANT:-none}" != "none" ] &&
 			   [ "${KSU_HOOK_MODE_RESOLVED:-}" = "manual" ]; then
 				hooks_patch_apply
+			fi
+
+			# SukiSU-Ultra builtin needs may_mount forward declaration for kernel < 5.9
+			if [ "${KSU_VARIANT:-none}" = "sukisu-ultra" ]; then
+				may_mount_forward_decl_apply
 			fi
 
 			if is_true "${ENABLE_SUSFS:-false}";      then susfs_apply;      fi
