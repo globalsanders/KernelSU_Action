@@ -482,9 +482,8 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
 			if is_true "${ENABLE_SUSFS:-false}"; then
 				susfs_apply
 				# Fix SUSFS inotify bug for kernel 4.14
-				local kver
-				kver=$(kernel_version "$KERNEL_DIR" 2>/dev/null || echo "0.0")
-				if [ "$kver" = "4.14" ]; then
+				_kver=$(kernel_version "$KERNEL_DIR" 2>/dev/null || echo "0.0")
+				if [ "$_kver" = "4.14" ]; then
 					fix_susfs_inotify_414
 					may_mount_forward_decl_apply
 				fi
