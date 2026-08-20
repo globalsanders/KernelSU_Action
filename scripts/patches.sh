@@ -204,32 +204,38 @@ fix_susfs_kernel_414() {
 	local namespace_c="${KERNEL_DIR}/fs/namespace.c"
 	local fdinfo_c="${KERNEL_DIR}/fs/notify/fdinfo.c"
 
-	# === FIX 1: Move extern declarations outside of SUS_MOUNT ifdef in susfs.c ===
+	# === FIX 1: Add extern declarations to susfs.c unconditionally ===
 	if [ -f "$susfs_c" ]; then
-		# Check if ksu_try_umount extern is inside ifdef
-		if grep -q '#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT' "$susfs_c" && \
-		   grep -A5 '#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT' "$susfs_c" | grep -q 'extern void ksu_try_umount'; then
-			info "Moving ksu_try_umount extern outside of SUS_MOUNT ifdef"
-			# Add extern at the top, after includes
-			sed -i '/^#include "mount.h"/a\
-\
-/* Extern declarations for SUSFS - moved outside ifdefs for kernel 4.14 compatibility */\
+		# Always add extern declarations after the includes, regardless of ifdefs
+		if ! grep -q 'KERNEL_4_14_EXTERN_FIX' "$susfs_c"; then
+			info "Adding extern declarations to susfs.c"
+			# Find the line with spinlock declaration and add externs before it
+			sed -i '/^static spinlock_t susfs_spin_lock;/i\
+/* KERNEL_4_14_EXTERN_FIX - extern declarations moved outside ifdefs */\
 extern void ksu_try_umount(const char *mnt, bool check_mnt, int flags, uid_t uid);\
-extern bool susfs_is_current_ksu_domain(void);' "$susfs_c"
-			# Remove the old extern inside ifdef (it will be duplicate but that's ok)
+extern bool susfs_is_current_ksu_domain(void);\
+' "$susfs_c"
+			ok "Added extern declarations to susfs.c"
 		fi
 	fi
 
-	# === FIX 2: Add extern declarations to namespace.c if missing ===
+	# === FIX 2: Add extern declarations to namespace.c unconditionally ===
 	if [ -f "$namespace_c" ]; then
-		# Check if susfs_is_current_ksu_domain is used but not declared globally
 		if grep -q 'susfs_is_current_ksu_domain' "$namespace_c" && \
-		   ! grep -q '^extern bool susfs_is_current_ksu_domain' "$namespace_c"; then
+		   ! grep -q 'KERNEL_4_14_EXTERN_FIX' "$namespace_c"; then
 			info "Adding susfs_is_current_ksu_domain extern to namespace.c"
-			sed -i '/#include "internal.h"/a\
-\
-/* SUSFS extern - added for kernel 4.14 compatibility */\
-extern bool susfs_is_current_ksu_domain(void);' "$namespace_c"
+			# Add after the last #include line
+			local last_include_line
+			last_include_line=$(grep -n '^#include' "$namespace_c" | tail -1 | cut -d: -f1)
+			if [ -n "$last_include_line" ]; then
+				sed -i "${last_include_line}a\\
+\\
+/* KERNEL_4_14_EXTERN_FIX - SUSFS extern declaration */\\
+extern bool susfs_is_current_ksu_domain(void);" "$namespace_c"
+				ok "Added susfs_is_current_ksu_domain extern to namespace.c"
+			else
+				warn "Could not find include lines in namespace.c"
+			fi
 		fi
 	fi
 
@@ -237,31 +243,7 @@ extern bool susfs_is_current_ksu_domain(void);' "$namespace_c"
 	if [ -f "$fdinfo_c" ] && grep -q 'inotify_mark_user_mask' "$fdinfo_c"; then
 		info "Replacing inotify_mark_user_mask with mark->mask"
 		sed -i 's/inotify_mark_user_mask(mark)/(mark->mask \& IN_ALL_EVENTS)/g' "$fdinfo_c"
-
-		# Also need to fix the fdinfo.c structure - the SUSFS code block needs adjustment
-		# The issue is the label placement after #endif
-		# Check if there's a problematic pattern and fix it
-		if grep -q 'out_seq_printf:' "$fdinfo_c"; then
-			info "Fixing fdinfo.c label placement"
-			# The issue is: after out_seq_printf: label, there's a variable declaration
-			# In C, you can't have a declaration after a label without a statement
-			# Fix by adding a semicolon/empty statement after the label
-			sed -i 's/out_seq_printf:$/out_seq_printf: ;/' "$fdinfo_c"
-		fi
-	fi
-
-	# === FIX 4: Ensure TRY_UMOUNT code can access ksu_try_umount ===
-	# The susfs.c file has ksu_try_umount extern inside SUS_MOUNT ifdef
-	# but it's used in TRY_UMOUNT code. We need to make it available.
-	if [ -f "$susfs_c" ]; then
-		# Check if TRY_UMOUNT section exists and uses ksu_try_umount
-		if grep -q 'CONFIG_KSU_SUSFS_TRY_UMOUNT' "$susfs_c"; then
-			# Add extern before TRY_UMOUNT section if not already there
-			if ! grep -B50 'CONFIG_KSU_SUSFS_TRY_UMOUNT' "$susfs_c" | grep -q '^extern void ksu_try_umount'; then
-				info "Ensuring ksu_try_umount is declared for TRY_UMOUNT"
-				# Already added in FIX 1
-			fi
-		fi
+		ok "Fixed inotify_mark_user_mask"
 	fi
 
 	ok "SUSFS kernel 4.14 fixes applied"
