@@ -171,14 +171,12 @@ susfs_defconfig() {
 			# off in the reference builds.
 			KSU_SUSFS_SUS_SU | KSU_SUSFS_SUS_OVERLAYFS)
 				kconf_disable "$defconfig" "CONFIG_${s}" ;;
-			# SUS_MOUNT has fdinfo.c structural issues on kernel 4.14 that
-			# cannot be easily fixed - disable this one feature only
+			# SUS_MOUNT on kernel 4.14 - try enabling it, the inotify_mark_user_mask
+			# fix should make it work. If it fails, we'll see the real error.
 			KSU_SUSFS_SUS_MOUNT)
+				kconf_enable "$defconfig" "CONFIG_${s}"; enabled=$((enabled + 1))
 				if [ "$kver_check" = "4.14" ]; then
-					kconf_disable "$defconfig" "CONFIG_${s}"
-					warn "disabled CONFIG_KSU_SUSFS_SUS_MOUNT (fdinfo.c incompatible with kernel 4.14)"
-				else
-					kconf_enable "$defconfig" "CONFIG_${s}"; enabled=$((enabled + 1))
+					info "SUS_MOUNT enabled on kernel 4.14 (with inotify fix)"
 				fi ;;
 			# All other features are enabled - extern declaration bugs are
 			# fixed by fix_susfs_kernel_414() in the patch phase
