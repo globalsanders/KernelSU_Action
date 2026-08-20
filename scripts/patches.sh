@@ -478,6 +478,58 @@ hooks_patch_apply() {
 	endgroup
 }
 
+# ================================================================ STEALTH REBRAND
+
+# Rebrand KernelSU strings to look like an audio codec driver
+# This makes it harder for detection apps to find obvious root signatures
+stealth_rebrand_apply() {
+	group "Applying stealth rebranding"
+
+	local ksu_dir="${KERNEL_DIR}/${KSU_DIR:-KernelSU}"
+	[ -d "$ksu_dir" ] || { warn "KernelSU directory not found; skipping rebrand"; endgroup; return 0; }
+
+	info "Rebranding KernelSU strings..."
+
+	# String replacements:
+	# kernelsu -> aud_codec (lowercase binary/command name)
+	# KernelSU -> AudioCodec (display name)
+	# ksu -> auc (short prefix)
+	# /data/adb/ksu -> /data/adb/auc (directory)
+
+	# Find all source files
+	find "$ksu_dir" -type f \( -name "*.c" -o -name "*.h" -o -name "*.rs" -o -name "Kconfig" -o -name "Makefile" \) 2>/dev/null | while read -r file; do
+		# Only process if file contains any of our target strings
+		if grep -qE 'kernelsu|KernelSU|/ksu|"ksu"' "$file" 2>/dev/null; then
+			# Replace strings (order matters - longer strings first)
+			sed -i \
+				-e 's|/data/adb/ksu|/data/adb/auc|g' \
+				-e 's|kernelsu|aud_codec|g' \
+				-e 's|KernelSU|AudioCodec|g' \
+				-e 's|"ksu"|"auc"|g' \
+				-e 's|ksu_|auc_|g' \
+				"$file"
+		fi
+	done
+
+	# Also rebrand Kconfig menu entries
+	local kconfig="${ksu_dir}/kernel/Kconfig"
+	[ -f "$kconfig" ] && sed -i \
+		-e 's|KernelSU|AudioCodec|g' \
+		-e 's|kernelsu|aud_codec|g' \
+		"$kconfig"
+
+	# Rebrand susfs if present
+	local susfs_h="${KERNEL_DIR}/include/linux/susfs.h"
+	[ -f "$susfs_h" ] && sed -i \
+		-e 's|KernelSU|AudioCodec|g' \
+		-e 's|kernelsu|aud_codec|g' \
+		"$susfs_h"
+
+	ok "Stealth rebranding applied (KernelSU -> AudioCodec, kernelsu -> aud_codec)"
+	summary "| Stealth | rebranded (AudioCodec) |"
+	endgroup
+}
+
 # ======================================================================== KPM
 
 # SukiSU-Ultra's Kernel Patch Module support needs a post-link step: the
@@ -510,6 +562,7 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
 		hide_stuff)   hide_stuff_apply ;;
 		hooks)        hooks_patch_apply ;;
 		kpm)          kpm_patch_image "$2" ;;
+		stealth)      stealth_rebrand_apply ;;
 		all)
 			# Order matters and this is the tested one (4.19 + SukiSU builtin
 			# + SUSFS 1.5.5, no rejects):
@@ -540,6 +593,7 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
 				fi
 			fi
 			if is_true "${ENABLE_HIDE_STUFF:-false}"; then hide_stuff_apply; fi
+			if is_true "${ENABLE_STEALTH_REBRAND:-false}"; then stealth_rebrand_apply; fi
 			;;
 		*) die "unknown patch step '$1'" ;;
 	esac
