@@ -491,23 +491,24 @@ stealth_rebrand_apply() {
 
 	info "Rebranding KernelSU display strings (safe mode)..."
 
-	# SAFE replacements - only string literals that appear in logs/procfs/detection
-	# We do NOT replace variable names like ksu_devpts_sid, ksu_handle_*, etc.
+	# SAFE replacements - only display strings, NOT paths!
+	# Path "/data/adb/ksu" must stay intact for manager compatibility.
+	# Use SUSFS SUS_PATH to hide the path from detection apps instead.
 
 	# Find all source files
 	find "$ksu_dir" -type f \( -name "*.c" -o -name "*.h" -o -name "*.rs" \) 2>/dev/null | while read -r file; do
-		# Replace only QUOTED strings (string literals)
-		# "kernelsu" -> "aud_codec"
+		# Replace only display/log strings - NOT paths
+		# "kernelsu" -> "aud_codec" (but not "/data/adb/ksu")
 		# "KernelSU" -> "AudioCodec"
-		# "/data/adb/ksu" -> "/data/adb/auc"
 		sed -i \
-			-e 's|"/data/adb/ksu"|"/data/adb/auc"|g' \
 			-e 's|"kernelsu"|"aud_codec"|g' \
 			-e 's|"KernelSU"|"AudioCodec"|g' \
 			-e "s|'kernelsu'|'aud_codec'|g" \
 			-e "s|'KernelSU'|'AudioCodec'|g" \
 			"$file" 2>/dev/null || true
 	done
+
+	info "Note: Path /data/adb/ksu unchanged (use SUSFS SUS_PATH to hide)"
 
 	# Rebrand Kconfig menu text (visible in /proc/config.gz)
 	local kconfig="${ksu_dir}/kernel/Kconfig"
