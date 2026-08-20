@@ -480,52 +480,56 @@ hooks_patch_apply() {
 
 # ================================================================ STEALTH REBRAND
 
-# Rebrand KernelSU strings to look like an audio codec driver
+# Rebrand KernelSU display strings to look like an audio codec driver
 # This makes it harder for detection apps to find obvious root signatures
+# IMPORTANT: Only replace STRING LITERALS, not code variable names!
 stealth_rebrand_apply() {
 	group "Applying stealth rebranding"
 
 	local ksu_dir="${KERNEL_DIR}/${KSU_DIR:-KernelSU}"
 	[ -d "$ksu_dir" ] || { warn "KernelSU directory not found; skipping rebrand"; endgroup; return 0; }
 
-	info "Rebranding KernelSU strings..."
+	info "Rebranding KernelSU display strings (safe mode)..."
 
-	# String replacements:
-	# kernelsu -> aud_codec (lowercase binary/command name)
-	# KernelSU -> AudioCodec (display name)
-	# ksu -> auc (short prefix)
-	# /data/adb/ksu -> /data/adb/auc (directory)
+	# SAFE replacements - only string literals that appear in logs/procfs/detection
+	# We do NOT replace variable names like ksu_devpts_sid, ksu_handle_*, etc.
 
 	# Find all source files
-	find "$ksu_dir" -type f \( -name "*.c" -o -name "*.h" -o -name "*.rs" -o -name "Kconfig" -o -name "Makefile" \) 2>/dev/null | while read -r file; do
-		# Only process if file contains any of our target strings
-		if grep -qE 'kernelsu|KernelSU|/ksu|"ksu"' "$file" 2>/dev/null; then
-			# Replace strings (order matters - longer strings first)
-			sed -i \
-				-e 's|/data/adb/ksu|/data/adb/auc|g' \
-				-e 's|kernelsu|aud_codec|g' \
-				-e 's|KernelSU|AudioCodec|g' \
-				-e 's|"ksu"|"auc"|g' \
-				-e 's|ksu_|auc_|g' \
-				"$file"
-		fi
+	find "$ksu_dir" -type f \( -name "*.c" -o -name "*.h" -o -name "*.rs" \) 2>/dev/null | while read -r file; do
+		# Replace only QUOTED strings (string literals)
+		# "kernelsu" -> "aud_codec"
+		# "KernelSU" -> "AudioCodec"
+		# "/data/adb/ksu" -> "/data/adb/auc"
+		sed -i \
+			-e 's|"/data/adb/ksu"|"/data/adb/auc"|g' \
+			-e 's|"kernelsu"|"aud_codec"|g' \
+			-e 's|"KernelSU"|"AudioCodec"|g' \
+			-e "s|'kernelsu'|'aud_codec'|g" \
+			-e "s|'KernelSU'|'AudioCodec'|g" \
+			"$file" 2>/dev/null || true
 	done
 
-	# Also rebrand Kconfig menu entries
+	# Rebrand Kconfig menu text (visible in /proc/config.gz)
 	local kconfig="${ksu_dir}/kernel/Kconfig"
-	[ -f "$kconfig" ] && sed -i \
-		-e 's|KernelSU|AudioCodec|g' \
-		-e 's|kernelsu|aud_codec|g' \
-		"$kconfig"
+	if [ -f "$kconfig" ]; then
+		# Only replace text inside quotes (menu descriptions)
+		sed -i \
+			-e 's|"KernelSU"|"AudioCodec"|g' \
+			-e 's|"kernelsu"|"aud_codec"|g' \
+			-e "s|'KernelSU'|'AudioCodec'|g" \
+			"$kconfig" 2>/dev/null || true
+	fi
 
-	# Rebrand susfs if present
+	# Rebrand susfs display strings
 	local susfs_h="${KERNEL_DIR}/include/linux/susfs.h"
-	[ -f "$susfs_h" ] && sed -i \
-		-e 's|KernelSU|AudioCodec|g' \
-		-e 's|kernelsu|aud_codec|g' \
-		"$susfs_h"
+	if [ -f "$susfs_h" ]; then
+		sed -i \
+			-e 's|"KernelSU"|"AudioCodec"|g' \
+			-e 's|"kernelsu"|"aud_codec"|g' \
+			"$susfs_h" 2>/dev/null || true
+	fi
 
-	ok "Stealth rebranding applied (KernelSU -> AudioCodec, kernelsu -> aud_codec)"
+	ok "Stealth rebranding applied (string literals only)"
 	summary "| Stealth | rebranded (AudioCodec) |"
 	endgroup
 }
