@@ -244,6 +244,16 @@ extern bool susfs_is_current_ksu_domain(void);" "$namespace_c"
 		ok "Fixed inotify_mark_user_mask"
 	fi
 
+	# === FIX 4: Fix label before declaration in fdinfo.c (Android kernel conflict) ===
+	# The Android kernel already has 'u32 mask = mark->mask & IN_ALL_EVENTS;'
+	# The SUSFS patch adds 'out_seq_printf:' label before it, which is invalid C
+	# (can't have declaration directly after label). Add null statement after label.
+	if [ -f "$fdinfo_c" ] && grep -q 'out_seq_printf:' "$fdinfo_c"; then
+		info "Fixing out_seq_printf label (adding null statement)"
+		sed -i 's/out_seq_printf:/out_seq_printf: ;/' "$fdinfo_c"
+		ok "Fixed out_seq_printf label"
+	fi
+
 	ok "SUSFS kernel 4.14 fixes applied"
 	endgroup
 }
